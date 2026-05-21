@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Birthday Cake — Blow to Light</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: linear-gradient(180deg, #1a0a2e 0%, #2d1854 50%, #4a1a6e 100%);
+      min-height: 100vh;
+      font-family: 'Helvetica Neue', sans-serif;
+      color: #fff;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 12px;
+      letter-spacing: 2px;
+      text-shadow: 0 0 20px rgba(255,180,200,0.6);
+    }
+    #status {
+      font-size: 14px;
+      opacity: 0.7;
+      margin-bottom: 20px;
+      min-height: 20px;
+    }
+    #status.ready { color: #aaffaa; opacity: 1; }
+    #status.error { color: #ff8888; opacity: 1; }
+    canvas {
+      max-width: 100%;
+      max-height: 70vh;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    #mic-meter {
+      width: 300px;
+      height: 8px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 4px;
+      margin-top: 16px;
+      overflow: hidden;
+    }
+    #mic-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #ffaa00, #ff3366);
+      transition: width 0.05s linear;
+    }
+    #counter {
+      margin-top: 12px;
+      font-size: 18px;
+      opacity: 0.8;
+    }
+    #relight {
+      margin-top: 20px;
+      padding: 10px 24px;
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    #relight:hover {
+      background: rgba(255,255,255,0.2);
+      border-color: rgba(255,255,255,0.6);
+    }
+  </style>
+</head>
+<body>
+  <h1>🎂 Make a Wish</h1>
+  <div id="status">Click anywhere to enable microphone</div>
+  <canvas id="canvas" width="800" height="500"></canvas>
+  <div id="mic-meter"><div id="mic-fill"></div></div>
+  <div id="counter">24 candles lit</div>
+  <button id="relight">Relight all candles</button>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
