@@ -1,5 +1,5 @@
 import { Cake } from './cake.js';
-import { BlowDetector } from './audio.js';
+import { AudioDetector } from './audio.js';
 
 const canvas = document.getElementById('canvas');
 const statusEl = document.getElementById('status');
@@ -8,22 +8,43 @@ const counterEl = document.getElementById('counter');
 const relightBtn = document.getElementById('relight');
 
 const cake = new Cake(canvas);
-const detector = new BlowDetector();
+const detector = new AudioDetector();
 
 function updateCounter() {
   const lit = cake.lit();
   counterEl.textContent = lit === 0
-    ? '🎉 All candles out! Make a wish!'
+    ? '🎉 All candles out! Clap to relight 👏'
     : `${lit} candle${lit === 1 ? '' : 's'} lit`;
 }
 
-function loop(time) {
-  detector.tick((strength) => {
-    const count = cake.blow(strength);
-    if (count > 0) updateCounter();
-  });
+function flashStatus(msg, ms = 1500) {
+  const original = statusEl.textContent;
+  const originalClass = statusEl.className;
+  statusEl.textContent = msg;
+  statusEl.className = 'ready';
+  setTimeout(() => {
+    statusEl.textContent = original;
+    statusEl.className = originalClass;
+  }, ms);
+}
 
-  // Mic meter
+function loop(time) {
+  detector.tick(
+    // onBlow
+    (strength) => {
+      const count = cake.blow(strength);
+      if (count > 0) updateCounter();
+    },
+    // onClap
+    () => {
+      if (cake.lit() < 24) {
+        cake.relightAll();
+        updateCounter();
+        flashStatus('🔥 Candles relit!');
+      }
+    }
+  );
+
   micFill.style.width = `${Math.min(100, detector.currentLevel * 200)}%`;
 
   cake.render(time);
@@ -33,7 +54,7 @@ function loop(time) {
 async function init() {
   try {
     await detector.start();
-    statusEl.textContent = '🎤 Blow on your screen to extinguish candles';
+    statusEl.textContent = '🎤 Blow to extinguish, clap to relight';
     statusEl.className = 'ready';
     requestAnimationFrame(loop);
   } catch (err) {
@@ -43,11 +64,12 @@ async function init() {
   }
 }
 
-// Microphone access requires user gesture — wait for click
+// Microphone needs user gesture — start on first click anywhere
 document.body.addEventListener('click', () => {
   if (!detector.running) init();
 }, { once: true });
 
+// Keep the button as a backup
 relightBtn.addEventListener('click', () => {
   cake.relightAll();
   updateCounter();

@@ -11,17 +11,20 @@ export class AudioDetector {
     this.blowMinSustainMs = 120;
     this.blowCooldownMs = 600;
 
-    // ── Clap tuning ──
-    this.clapThreshold = 0.55;       // peak amplitude (0-1)
-    this.clapRiseRatio = 2.5;         // current must be N× the recent average
-    this.clapCooldownMs = 400;
+    // ── Clap / loud-sound tuning ──
+    this.clapThreshold = 0.35;       // peak amplitude (0-1)
+    this.clapCooldownMs = 500;
+    this.blowToClapDelay = 2000;     // ignore claps for 2s after a blow
 
     // State
     this.aboveThresholdSince = 0;
     this.lastBlowAt = 0;
     this.lastClapAt = 0;
-    this.recentEnergyHistory = new Array(20).fill(0);  // ~333ms @ 60fps
     this.currentLevel = 0;
+
+    // Debug — set to true to flood the console with audio stats
+    this.debug = true;
+    this._debugFrameCounter = 0;
   }
 
   async start() {
@@ -39,7 +42,7 @@ export class AudioDetector {
 
     this.analyser = this.audioCtx.createAnalyser();
     this.analyser.fftSize = 2048;
-    this.analyser.smoothingTimeConstant = 0.4;   // lower so transients pass through
+    this.analyser.smoothingTimeConstant = 0.4;
 
     source.connect(this.analyser);
 
@@ -56,50 +59,56 @@ export class AudioDetector {
 
     const now = performance.now();
 
-    // ── Compute time-domain peak amplitude (for clap) ──
+    // ── Peak amplitude (time domain) ──
     let peak = 0;
     for (let i = 0; i < this.timeDomainArray.length; i++) {
-      const v = Math.abs(this.timeDomainArray[i] - 128) / 128;  // -1..1 → 0..1
+      const v = Math.abs(this.timeDomainArray[i] - 128) / 128;
       if (v > peak) peak = v;
     }
 
-    // ── Compute frequency bands ──
-    // Low band (1-28): breath signature
+    // ── Frequency bands ──
     let lowSum = 0;
     for (let i = 1; i < 28; i++) lowSum += this.dataArray[i];
     const lowBandAvg = lowSum / 27 / 255;
 
-    // High band (100-300): speech formants / clap broadband
     let highSum = 0;
     for (let i = 100; i < 300; i++) highSum += this.dataArray[i];
     const highBandAvg = highSum / 200 / 255;
 
     this.currentLevel = lowBandAvg;
 
-    // ── Energy history for clap detection (broadband peak) ──
-    const recentAvg = this.recentEnergyHistory.reduce((a, b) => a + b, 0) / this.recentEnergyHistory.length;
-    this.recentEnergyHistory.shift();
-    this.recentEnergyHistory.push(peak);
+    // ── DEBUG: log every ~10 frames so console isn't completely flooded ──
+    if (this.debug) {
+      this._debugFrameCounter++;
+      if (this._debugFrameCounter % 10 === 0) {
+        console.log(
+          `peak=${peak.toFixed(2)} low=${lowBandAvg.toFixed(2)} high=${highBandAvg.toFixed(3)}`
+        );
+      }
+      // Always log significant peaks
+      if (peak > 0.15) {
+        console.log(`>>> LOUD: peak=${peak.toFixed(2)} low=${lowBandAvg.toFixed(2)} high=${highBandAvg.toFixed(3)}`);
+      }
+    }
 
     // ──────────────────────────────────────────────
-    // CLAP DETECTION
-    // Signature: sudden broadband peak — high amplitude AND high band energy,
-    //            AND it's much louder than the recent baseline.
+    // LOUD-SOUND DETECTION (relights candles)
+    // Triggers on any sudden loud peak — clap, snap, shout, knock.
+    // Suppressed for 2s after a blow so finishing a blow doesn't relight.
     // ──────────────────────────────────────────────
-    if (now - this.lastClapAt > this.clapCooldownMs) {
-      const isTransient = peak > this.clapThreshold && peak > recentAvg * this.clapRiseRatio;
-      const isBroadband = highBandAvg > 0.08;  // claps have high-freq energy
-
-      if (isTransient && isBroadband) {
+    if (now - this.lastClapAt > this.clapCooldownMs
+        && now - this.lastBlowAt > this.blowToClapDelay) {
+      if (peak > this.clapThreshold) {
         this.lastClapAt = now;
+        if (this.debug) console.log(`🔥 CLAP FIRED: peak=${peak.toFixed(2)}`);
         if (onClap) onClap(peak);
-        return;   // don't also evaluate blow this frame
+        return;
       }
     }
 
     // ──────────────────────────────────────────────
     // BLOW DETECTION
-    // Signature: sustained low-band energy without proportional high-band.
+    // Sustained low-band energy without proportional high-band.
     // ──────────────────────────────────────────────
     if (now - this.lastBlowAt < this.blowCooldownMs) {
       this.aboveThresholdSince = 0;
@@ -115,6 +124,7 @@ export class AudioDetector {
         this.lastBlowAt = now;
         this.aboveThresholdSince = 0;
         const strength = Math.min(1, lowBandAvg * 2);
+        if (this.debug) console.log(`💨 BLOW FIRED: low=${lowBandAvg.toFixed(2)}`);
         if (onBlow) onBlow(strength);
       }
     } else {
@@ -128,5 +138,5 @@ export class AudioDetector {
   }
 }
 
-// Backwards-compat alias if you imported BlowDetector elsewhere
+// Backwards-compat alias
 export { AudioDetector as BlowDetector };
