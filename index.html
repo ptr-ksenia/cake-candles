@@ -3,7 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Birthday Cake — Blow to Light</title>
+  <title>Sashakas Birthday Cake — Blow to Light</title>
+
+  <!-- Three.js as ES module from CDN -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -31,11 +41,14 @@
     }
     #status.ready { color: #aaffaa; opacity: 1; }
     #status.error { color: #ff8888; opacity: 1; }
-    canvas {
-      max-width: 100%;
+    #canvas {
+      width: 800px;
+      height: 600px;
+      max-width: 95vw;
       max-height: 70vh;
       border-radius: 12px;
       box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      display: block;
     }
     #mic-meter {
       width: 300px;
@@ -65,21 +78,17 @@
       border-radius: 8px;
       font-size: 14px;
       cursor: pointer;
-      transition: all 0.2s;
     }
-    #relight:hover {
-      background: rgba(255,255,255,0.2);
-      border-color: rgba(255,255,255,0.6);
-    }
+    #relight:hover { background: rgba(255,255,255,0.2); }
   </style>
 </head>
 <body>
   <h1>🎂 Make a Wish</h1>
   <div id="status">Click anywhere to enable microphone</div>
-  <canvas id="canvas" width="800" height="500"></canvas>
+  <canvas id="canvas"></canvas>
   <div id="mic-meter"><div id="mic-fill"></div></div>
   <div id="counter">24 candles lit</div>
-  <button id="relight">Relight all candles</button>
+  <button id="relight">🕯️ Relight all candles</button>
 
   <script type="module" src="./main.js"></script>
 </body>

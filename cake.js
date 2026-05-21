@@ -1,80 +1,333 @@
+import * as THREE from 'three';
+
 const CANDLE_COUNT = 24;
-const CANDLE_COLORS = ['#ff3366', '#ffaa00', '#66ddff', '#aaff66', '#ff66cc', '#ffee44'];
+const CANDLE_COLORS = [
+  0xffb3ba, 0xffdfba, 0xffffba, 0xbaffc9,
+  0xbae1ff, 0xd4baff, 0xffbae1, 0xc9c9c9,
+];
 
 export class Cake {
   constructor(canvas) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
-    this.candles = this.createCandles();
+    this.celebrating = false;
+
+    // ── Scene setup ──
+    this.scene = new THREE.Scene();
+    this.scene.background = null;  // transparent so body gradient shows
+
+    this.camera = new THREE.PerspectiveCamera(40, canvas.width / canvas.height, 0.1, 100);
+    this.camera.position.set(0, 4.5, 8);
+    this.camera.lookAt(0, 0.5, 0);
+
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: true,
+    });
+    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setSize(canvas.width, canvas.height, false);
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    // ── Lighting ──
+    const ambient = new THREE.AmbientLight(0xfff0e0, 0.4);
+    this.scene.add(ambient);
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    keyLight.position.set(5, 10, 5);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.width = 1024;
+    keyLight.shadow.mapSize.height = 1024;
+    this.scene.add(keyLight);
+
+    const fillLight = new THREE.DirectionalLight(0xffcccc, 0.4);
+    fillLight.position.set(-5, 3, -5);
+    this.scene.add(fillLight);
+
+    // Per-candle flame point lights — combined for performance
+    this.candleLight = new THREE.PointLight(0xffaa44, 1.5, 8);
+    this.candleLight.position.set(0, 2.5, 0);
+    this.scene.add(this.candleLight);
+
+    // ── Build the cake ──
+    this.cakeGroup = new THREE.Group();
+    this.scene.add(this.cakeGroup);
+    this.buildPlatter();
+    this.buildCakeBody();
+    this.buildTruffles();
+    this.candles = this.buildCandles();
+
+    // ── Particles (smoke + confetti) ──
     this.smokeParticles = [];
     this.confettiParticles = [];
-    this.celebrating = false;
+    this.smokeGroup = new THREE.Group();
+    this.confettiGroup = new THREE.Group();
+    this.scene.add(this.smokeGroup, this.confettiGroup);
+
+    // ── Resize handling ──
+    window.addEventListener('resize', () => this.resize());
+    this.resize();
   }
 
-  createCandles() {
-    // Arrange 24 candles in 3 rows of 8 on top of the cake
-    const candles = [];
-    const rows = 3;
-    const cols = 8;
-    const cakeTop = 230;
-    const cakeLeft = 120;
-    const cakeRight = 680;
-    const rowSpacing = 25;
-    const colSpacing = (cakeRight - cakeLeft) / (cols + 1);
+  resize() {
+    const rect = this.canvas.getBoundingClientRect();
+    const w = rect.width;
+    const h = rect.height;
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+  }
 
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        candles.push({
-          x: cakeLeft + colSpacing * (c + 1),
-          y: cakeTop - 60 + r * rowSpacing,
-          lit: true,
-          color: CANDLE_COLORS[(r * cols + c) % CANDLE_COLORS.length],
-          flicker: Math.random() * Math.PI * 2,
-          extinguishedAt: 0,
-        });
-      }
+  buildPlatter() {
+    // Yellow outer ring
+    const outerRing = new THREE.Mesh(
+      new THREE.CylinderGeometry(3.2, 3.2, 0.15, 64),
+      new THREE.MeshStandardMaterial({ color: 0xffee33, roughness: 0.4 })
+    );
+    outerRing.position.y = -0.6;
+    outerRing.receiveShadow = true;
+    this.cakeGroup.add(outerRing);
+
+    // Pink middle ring
+    const pinkRing = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.85, 2.85, 0.17, 64),
+      new THREE.MeshStandardMaterial({ color: 0xff2266, roughness: 0.4 })
+    );
+    pinkRing.position.y = -0.59;
+    pinkRing.receiveShadow = true;
+    this.cakeGroup.add(pinkRing);
+
+    // Gray inner platter
+    const innerPlatter = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.5, 2.5, 0.18, 64),
+      new THREE.MeshStandardMaterial({ color: 0xb8b8b8, roughness: 0.6, metalness: 0.3 })
+    );
+    innerPlatter.position.y = -0.58;
+    innerPlatter.receiveShadow = true;
+    this.cakeGroup.add(innerPlatter);
+  }
+
+  buildCakeBody() {
+    // Main cake cylinder — white frosted body
+    const body = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.0, 2.0, 1.0, 48),
+      new THREE.MeshStandardMaterial({ color: 0xeeeae0, roughness: 0.85 })
+    );
+    body.position.y = 0;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    this.cakeGroup.add(body);
+
+    // Jagged frosting peaks on top — random triangular spikes
+    const topY = 0.5;
+    const peakCount = 60;
+    const peakGeometry = new THREE.ConeGeometry(0.18, 0.35, 4);
+    const peakMaterial = new THREE.MeshStandardMaterial({
+      color: 0xf5f0e6,
+      roughness: 0.9,
+    });
+
+    for (let i = 0; i < peakCount; i++) {
+      const peak = new THREE.Mesh(peakGeometry, peakMaterial);
+      const r = Math.random() * 1.85;
+      const angle = Math.random() * Math.PI * 2;
+      peak.position.set(
+        Math.cos(angle) * r,
+        topY + 0.15 + Math.random() * 0.1,
+        Math.sin(angle) * r,
+      );
+      peak.rotation.set(
+        (Math.random() - 0.5) * 0.6,
+        Math.random() * Math.PI,
+        (Math.random() - 0.5) * 0.6,
+      );
+      peak.castShadow = true;
+      this.cakeGroup.add(peak);
     }
+  }
+
+  buildTruffles() {
+    // Chocolate truffles around the perimeter at base, and a few on top
+    const truffleMaterial = new THREE.MeshStandardMaterial({
+      color: 0x3a1d10,
+      roughness: 0.3,
+      metalness: 0.1,
+    });
+
+    // Bottom ring of truffles (around the cake base)
+    const bottomCount = 14;
+    for (let i = 0; i < bottomCount; i++) {
+      const t = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 16), truffleMaterial);
+      const angle = (i / bottomCount) * Math.PI * 2;
+      t.position.set(Math.cos(angle) * 2.2, -0.35, Math.sin(angle) * 2.2);
+      t.castShadow = true;
+      this.cakeGroup.add(t);
+    }
+
+    // Scatter a few on top
+    const topPositions = [
+      [0.7, 0.7, -0.5], [-1.0, 0.7, 0.3], [0.2, 0.7, 1.2],
+      [-0.5, 0.7, -1.2], [1.3, 0.7, 0.6], [-1.4, 0.7, -0.5],
+    ];
+    topPositions.forEach(([x, y, z]) => {
+      const t = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), truffleMaterial);
+      t.position.set(x, y, z);
+      t.castShadow = true;
+      this.cakeGroup.add(t);
+    });
+  }
+
+  buildCandles() {
+    const candles = [];
+
+    // Two concentric rings — inner ring of 8, outer ring of 16
+    const inner = { count: 8, radius: 0.6 };
+    const outer = { count: 16, radius: 1.4 };
+
+    const arrangements = [];
+    for (let i = 0; i < inner.count; i++) {
+      const angle = (i / inner.count) * Math.PI * 2;
+      arrangements.push({
+        x: Math.cos(angle) * inner.radius,
+        z: Math.sin(angle) * inner.radius,
+      });
+    }
+    for (let i = 0; i < outer.count; i++) {
+      const angle = (i / outer.count) * Math.PI * 2;
+      arrangements.push({
+        x: Math.cos(angle) * outer.radius,
+        z: Math.sin(angle) * outer.radius,
+      });
+    }
+
+    arrangements.forEach((pos, idx) => {
+      const candle = this.makeCandle(CANDLE_COLORS[idx % CANDLE_COLORS.length]);
+      candle.group.position.set(pos.x, 0.5, pos.z);
+      this.cakeGroup.add(candle.group);
+      candles.push(candle);
+    });
+
     return candles;
+  }
+
+  makeCandle(color) {
+    const group = new THREE.Group();
+
+    // Candle body — thin tall cylinder
+    const bodyMaterial = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.5,
+      metalness: 0.05,
+    });
+    const body = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.06, 0.06, 0.95, 12),
+      bodyMaterial
+    );
+    body.position.y = 0.475;
+    body.castShadow = true;
+    group.add(body);
+
+    // Wick
+    const wick = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.012, 0.012, 0.08, 6),
+      new THREE.MeshStandardMaterial({ color: 0x222222 })
+    );
+    wick.position.y = 0.99;
+    group.add(wick);
+
+    // Flame — small ellipsoid sphere with emissive material
+    const flameMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffcc00,
+      emissive: 0xff8800,
+      emissiveIntensity: 1.5,
+      transparent: true,
+      opacity: 0.95,
+    });
+    const flame = new THREE.Mesh(
+      new THREE.SphereGeometry(0.07, 12, 12),
+      flameMaterial
+    );
+    flame.scale.set(0.8, 1.8, 0.8);
+    flame.position.y = 1.12;
+    group.add(flame);
+
+    // Inner hot core
+    const coreMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(0.035, 8, 8),
+      coreMaterial
+    );
+    core.scale.set(0.6, 1.4, 0.6);
+    core.position.y = 1.10;
+    group.add(core);
+
+    return {
+      group,
+      flame,
+      core,
+      lit: true,
+      flickerSeed: Math.random() * Math.PI * 2,
+    };
   }
 
   lit() { return this.candles.filter(c => c.lit).length; }
 
   relightAll() {
-    this.candles.forEach(c => { c.lit = true; c.extinguishedAt = 0; });
-    this.smokeParticles = [];
-    this.confettiParticles = [];
+    this.candles.forEach(c => {
+      c.lit = true;
+      c.flame.visible = true;
+      c.core.visible = true;
+    });
     this.celebrating = false;
+    // Clear particles
+    this.smokeParticles.forEach(p => this.smokeGroup.remove(p.mesh));
+    this.smokeParticles = [];
+    this.confettiParticles.forEach(p => this.confettiGroup.remove(p.mesh));
+    this.confettiParticles = [];
   }
 
-  /**
-   * Blow out a fraction of currently-lit candles.
-   * Returns the number extinguished this blow.
-   */
   blow(strength = 1) {
     const litCandles = this.candles.filter(c => c.lit);
     if (litCandles.length === 0) return 0;
 
-    // Blow out 40-70% of lit candles per blow, scaled by strength
     const fraction = 0.4 + Math.random() * 0.3;
     const count = Math.min(litCandles.length, Math.ceil(litCandles.length * fraction * strength));
 
-    // Shuffle and pick
     const shuffled = [...litCandles].sort(() => Math.random() - 0.5);
     const toExtinguish = shuffled.slice(0, count);
 
-    const now = performance.now();
     toExtinguish.forEach(c => {
       c.lit = false;
-      c.extinguishedAt = now;
-      // Spawn smoke
-      for (let i = 0; i < 6; i++) {
+      c.flame.visible = false;
+      c.core.visible = false;
+
+      // Spawn smoke at the candle's world position
+      const worldPos = new THREE.Vector3();
+      c.group.getWorldPosition(worldPos);
+
+      for (let i = 0; i < 4; i++) {
+        const smokeMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(0.08, 8, 8),
+          new THREE.MeshBasicMaterial({
+            color: 0xaaaaaa,
+            transparent: true,
+            opacity: 0.4,
+          })
+        );
+        smokeMesh.position.copy(worldPos);
+        smokeMesh.position.y += 1.15;
+        this.smokeGroup.add(smokeMesh);
         this.smokeParticles.push({
-          x: c.x + (Math.random() - 0.5) * 6,
-          y: c.y - 18,
-          vx: (Math.random() - 0.5) * 0.5,
-          vy: -0.5 - Math.random(),
+          mesh: smokeMesh,
+          vy: 0.015 + Math.random() * 0.02,
+          vx: (Math.random() - 0.5) * 0.01,
+          vz: (Math.random() - 0.5) * 0.01,
           life: 1,
-          size: 4 + Math.random() * 6,
+          growthRate: 0.008,
         });
       }
     });
@@ -88,212 +341,94 @@ export class Cake {
   }
 
   spawnConfetti() {
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 150; i++) {
+      const confettiMesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.1, 0.05),
+        new THREE.MeshStandardMaterial({
+          color: CANDLE_COLORS[Math.floor(Math.random() * CANDLE_COLORS.length)],
+          side: THREE.DoubleSide,
+        })
+      );
+      confettiMesh.position.set(
+        (Math.random() - 0.5) * 4,
+        1.5,
+        (Math.random() - 0.5) * 4,
+      );
+      this.confettiGroup.add(confettiMesh);
       this.confettiParticles.push({
-        x: 400 + (Math.random() - 0.5) * 400,
-        y: 250,
-        vx: (Math.random() - 0.5) * 8,
-        vy: -8 - Math.random() * 8,
-        gravity: 0.2,
+        mesh: confettiMesh,
+        vx: (Math.random() - 0.5) * 0.08,
+        vy: 0.08 + Math.random() * 0.08,
+        vz: (Math.random() - 0.5) * 0.08,
+        spinX: (Math.random() - 0.5) * 0.2,
+        spinZ: (Math.random() - 0.5) * 0.2,
         life: 1,
-        decay: 0.005,
-        size: 4 + Math.random() * 6,
-        color: CANDLE_COLORS[Math.floor(Math.random() * CANDLE_COLORS.length)],
-        rotation: Math.random() * Math.PI * 2,
-        spin: (Math.random() - 0.5) * 0.2,
       });
     }
   }
 
-  drawCake() {
-    const ctx = this.ctx;
-
-    // Cake base (bottom tier) — chocolate
-    ctx.fillStyle = '#4a2818';
-    ctx.fillRect(100, 280, 600, 120);
-    ctx.fillStyle = '#3a1d10';
-    ctx.fillRect(100, 380, 600, 20);
-
-    // Frosting drips on base
-    ctx.fillStyle = '#fff0e8';
-    ctx.beginPath();
-    ctx.moveTo(100, 280);
-    for (let x = 100; x <= 700; x += 30) {
-      ctx.lineTo(x, 280);
-      ctx.quadraticCurveTo(x + 15, 305, x + 30, 280);
-    }
-    ctx.lineTo(700, 280);
-    ctx.lineTo(700, 270);
-    ctx.lineTo(100, 270);
-    ctx.closePath();
-    ctx.fill();
-
-    // Cake top tier (smaller, pink)
-    ctx.fillStyle = '#ff9ec7';
-    ctx.fillRect(180, 200, 440, 80);
-    ctx.fillStyle = '#e57aa8';
-    ctx.fillRect(180, 270, 440, 10);
-
-    // Top frosting trim
-    ctx.fillStyle = '#ffe0ee';
-    ctx.beginPath();
-    ctx.moveTo(180, 200);
-    for (let x = 180; x <= 620; x += 22) {
-      ctx.lineTo(x, 200);
-      ctx.quadraticCurveTo(x + 11, 218, x + 22, 200);
-    }
-    ctx.lineTo(620, 200);
-    ctx.lineTo(620, 195);
-    ctx.lineTo(180, 195);
-    ctx.closePath();
-    ctx.fill();
-
-    // Decorative dots on cake
-    ctx.fillStyle = '#ff3366';
-    for (let i = 0; i < 12; i++) {
-      ctx.beginPath();
-      ctx.arc(140 + i * 50, 340, 6, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  drawCandle(candle, time) {
-    const ctx = this.ctx;
-
-    // Candle body
-    ctx.fillStyle = candle.color;
-    ctx.fillRect(candle.x - 4, candle.y - 18, 8, 22);
-
-    // Candle stripes (decorative)
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.fillRect(candle.x - 4, candle.y - 14, 8, 2);
-    ctx.fillRect(candle.x - 4, candle.y - 6, 8, 2);
-
-    // Wick
-    ctx.fillStyle = '#333';
-    ctx.fillRect(candle.x - 0.5, candle.y - 22, 1, 4);
-
-    // Flame (only if lit)
-    if (candle.lit) {
-      const flickerX = Math.sin(time * 0.01 + candle.flicker) * 1.5;
-      const flickerScale = 0.9 + Math.sin(time * 0.02 + candle.flicker) * 0.1;
-
-      // Outer glow
-      const glow = ctx.createRadialGradient(
-        candle.x + flickerX, candle.y - 28,
-        0,
-        candle.x + flickerX, candle.y - 28,
-        20
-      );
-      glow.addColorStop(0, 'rgba(255, 200, 100, 0.6)');
-      glow.addColorStop(1, 'rgba(255, 200, 100, 0)');
-      ctx.fillStyle = glow;
-      ctx.fillRect(candle.x - 25, candle.y - 50, 50, 40);
-
-      // Flame outer (orange)
-      ctx.fillStyle = '#ff8c00';
-      ctx.beginPath();
-      ctx.ellipse(
-        candle.x + flickerX,
-        candle.y - 28,
-        4 * flickerScale,
-        9 * flickerScale,
-        0, 0, Math.PI * 2
-      );
-      ctx.fill();
-
-      // Flame inner (yellow)
-      ctx.fillStyle = '#ffee44';
-      ctx.beginPath();
-      ctx.ellipse(
-        candle.x + flickerX,
-        candle.y - 27,
-        2 * flickerScale,
-        6 * flickerScale,
-        0, 0, Math.PI * 2
-      );
-      ctx.fill();
-
-      // Hot center (white)
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.ellipse(
-        candle.x + flickerX,
-        candle.y - 26,
-        1 * flickerScale,
-        2.5 * flickerScale,
-        0, 0, Math.PI * 2
-      );
-      ctx.fill();
-    }
-  }
-
-  drawSmoke() {
-    const ctx = this.ctx;
+  updateParticles() {
+    // Smoke
     for (let i = this.smokeParticles.length - 1; i >= 0; i--) {
       const p = this.smokeParticles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy *= 0.99;
+      p.mesh.position.y += p.vy;
+      p.mesh.position.x += p.vx;
+      p.mesh.position.z += p.vz;
+      p.mesh.scale.x += p.growthRate;
+      p.mesh.scale.y += p.growthRate;
+      p.mesh.scale.z += p.growthRate;
       p.life -= 0.015;
-      p.size += 0.3;
-
+      p.mesh.material.opacity = p.life * 0.4;
       if (p.life <= 0) {
+        this.smokeGroup.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        p.mesh.material.dispose();
         this.smokeParticles.splice(i, 1);
-        continue;
       }
-
-      ctx.fillStyle = `rgba(200, 200, 200, ${p.life * 0.5})`;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fill();
     }
-  }
 
-  drawConfetti() {
-    const ctx = this.ctx;
+    // Confetti
     for (let i = this.confettiParticles.length - 1; i >= 0; i--) {
       const p = this.confettiParticles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy += p.gravity;
-      p.rotation += p.spin;
-      p.life -= p.decay;
-
-      if (p.life <= 0 || p.y > 600) {
+      p.mesh.position.x += p.vx;
+      p.mesh.position.y += p.vy;
+      p.mesh.position.z += p.vz;
+      p.vy -= 0.004;
+      p.mesh.rotation.x += p.spinX;
+      p.mesh.rotation.z += p.spinZ;
+      p.life -= 0.006;
+      if (p.life <= 0 || p.mesh.position.y < -1) {
+        this.confettiGroup.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        p.mesh.material.dispose();
         this.confettiParticles.splice(i, 1);
-        continue;
       }
-
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.rotation);
-      ctx.globalAlpha = p.life;
-      ctx.fillStyle = p.color;
-      ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
-      ctx.restore();
     }
   }
 
   render(time) {
-    const ctx = this.ctx;
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    const t = time * 0.001;
 
-    this.drawCake();
-    this.candles.forEach(c => this.drawCandle(c, time));
-    this.drawSmoke();
-    this.drawConfetti();
+    // Animate flame flicker for each lit candle
+    let anyLit = false;
+    this.candles.forEach(c => {
+      if (!c.lit) return;
+      anyLit = true;
+      const flicker = 0.85 + Math.sin(t * 8 + c.flickerSeed) * 0.1 + Math.random() * 0.05;
+      c.flame.scale.set(0.8 * flicker, 1.8 * flicker, 0.8 * flicker);
+      c.flame.material.emissiveIntensity = 1.2 + Math.sin(t * 10 + c.flickerSeed) * 0.4;
+    });
 
-    // "Happy Birthday" text when all candles out
-    if (this.celebrating) {
-      ctx.save();
-      ctx.font = 'bold 48px Helvetica';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#fff';
-      ctx.shadowBlur = 30;
-      ctx.shadowColor = '#ff66cc';
-      ctx.fillText('🎉 Happy Birthday! 🎉', this.canvas.width / 2, 100);
-      ctx.restore();
+    // Combined candle light intensity scales with lit count
+    if (this.candleLight) {
+      const intensity = (this.lit() / CANDLE_COUNT) * 2.0;
+      this.candleLight.intensity = intensity * (0.85 + Math.sin(t * 6) * 0.15);
     }
+
+    // Slow rotation of the whole cake — gives the 3D feel
+    this.cakeGroup.rotation.y = Math.sin(t * 0.15) * 0.15;
+
+    this.updateParticles();
+    this.renderer.render(this.scene, this.camera);
   }
 }
